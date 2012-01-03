@@ -1,7 +1,0 @@
-TODO
-
-retest more sequence sets (singles, subs, indels) (with C = some multiple of maxlen-minoverlap) to 
- * determine average improvement percentage
- * time taken
- * create reproducible test dataset for upload to PLOS
- * create test script (make file for use with -j ??)
