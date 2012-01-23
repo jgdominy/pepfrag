@@ -1,6 +1,7 @@
-This code is avaialble under the Gnu General Public License v3 or higher. For
-more information, please see the file COPYING which should have been provided
-with the rest of the project files.
+This code is Copyright (c) the Centre for Proteomic and Genomic Research
+(2011-2012) and is distributed under the terms of Gnu General Public License
+version 3 or higher.  For the full terms and conditions please see the file
+COPYING which should have been included in this distribution.
 
 This project contains three scripts:
 
@@ -15,5 +16,6 @@ make in this directory will run a series of tests which may take some time (2
 days on an 8 core 2.5Ghz machine using 'make -j 7'). These tests can and should
 be run in parallel using -j N, where N is the number of free cores you have.
 
-The Makefile reproduces the results found in the published paper.
+The Makefile reproduces the results found in the published paper, as well as
+others.
 

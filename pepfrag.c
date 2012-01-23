@@ -1,6 +1,14 @@
+/* This code is Copyright (c) the Centre for Proteomic and Genomic Research
+ * (2011-2012) and is distributed under the terms of Gnu General Public License
+ * version 3 or higher.  For the full terms and conditions please see the file
+ * COPYING which should have been included in this distribution. */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
+#include <math.h>
+#include <errno.h>
 
 //seqpos, element and collection together form the main data structure used to
 //store a list of peptide fragments found/used and their respective positions
@@ -29,11 +37,11 @@ typedef struct {
 } sequence_rec;
 
 //maths convenience function
-int max(a, b) {
+int max(int a, int b) {
 	return (a > b?a:b);
 }
 	
-int min(a, b) {
+int min(int a, int b) {
 	return (a < b?a:b);
 }
 
@@ -41,9 +49,10 @@ int min(a, b) {
 
 //checks whether a string consists entirely of white space
 int empty(const char *s) {
-	char *i = s;
-	while (*i != 0) {
-		if (!isspace(*i)) return 0;
+	int i;
+	i = 0;
+	while (s[i] != 0) {
+		if (!isspace(s[i])) return 0;
 		i++;
 	}
 	return 1;
@@ -54,24 +63,29 @@ int empty(const char *s) {
 //the end of the s
 char *substr(const char *s, int i, int j) {
 	char *ret;
-	if (i < 0) i = strlen(s)-i;
-	if (j < 0) j = strlen(s)-j;
+	if (i < 0) i = strlen(s)+i;
+	if (j < 0) j = strlen(s)+j;
 	ret = malloc(j-i+1);
 	strncpy(ret,s,j-i);
+	ret[j-i] = 0;
 	return ret;
 }
 
 //strips white space from either end of the string
-void strip(char **s) {
+char *strip(const char *s) {
 	int i, j, len;
-	char *tmp = *s;
-	len = strlen(*s);
+
+	len = strlen(s);
+	if (len == 0) return strdup(s);
 	i = 0;
-	while (isspace(*s[i]))&&(i < len) i++;
-	j = strlen(*s)-1;
-	while ((isspace(*s[j]))&&(j > 0)) j--;
-	*s = strndup(*s+i, j-i);
-	free(tmp);
+	while ((isspace(s[i]))&&(i < len)) {
+		i++;
+	}
+	j = len-1;
+	while ((isspace(s[j]))&&(j > 0)) {
+		j--;
+	}
+	return strndup(s+i, j-i+1);
 }
 
 //incollection uses a binary search to locate a particular peptide fragment
@@ -93,11 +107,11 @@ int incollection(const collection *c, const char *s) {
 	return (d == 0);
 }
 
-//col_insert inserts a fragment into a collection. If the fragment exists, the
+//pushspos inserts a fragment into a collection. If the fragment exists, the
 //position information is appended to its position list, otherwise the
 //fragement is added and the position list is set to contain only the added
 //position.
-void insert(collection *c, const char *seq, int sidx, int spos) {
+void pushspos(collection *c, const char *seq, int sidx, int spos) {
 	int min = 0;
 	int max = c->length-1;
 	int mid;
@@ -110,7 +124,7 @@ void insert(collection *c, const char *seq, int sidx, int spos) {
 	newpos->pos = spos;
 	if (c->length == 0) {
 		c->length = 1;
-		realloc(c->items, c->length*sizeof(element));
+		c->items = realloc(c->items, c->length*sizeof(element));
 		newpos->next = NULL;
 		newelem = malloc(sizeof(element));
 		newelem->seq = strdup(seq);
@@ -131,24 +145,50 @@ void insert(collection *c, const char *seq, int sidx, int spos) {
 			newpos->next = c->items[mid].positions;
 			c->items[mid].positions = newpos;
 		} else {
-			//col_insert new sequence at correct position
+			//insert new sequence at correct position
 			newpos->next = NULL;
 			newelem = malloc(sizeof(element));
 			newelem->seq = strdup(seq);
 			newelem->positions = newpos;
 			c->length++;
-			realloc(c->items, c->length*sizeof(element));
+			c->items = realloc(c->items, c->length*sizeof(element));
 			if (d > 0) mid--;	
 			memmove(c->items+mid+2, c->items+mid+1, c->length-mid-2);
 		}
 	}
 }
 
-//remove
+//popspos pops the most recent position off a given sequences position stack, in a given collection.
+void popspos(collection *c, const char *seq) {
+	int min = 0;
+	int max = c->length-1;
+	int mid;
+	int d;
+	seqpos *t;
 
-//pushidx
-
-//popidx
+	do {
+		mid = (min+max)/2;
+		d = strcmp(seq,c->items[mid].seq);
+		if (d < 0) {
+			max = mid-1;
+		} else {
+			min = mid+1;
+		}
+	} while ((d != 0)&&(min < max));
+	if (d == 0) {
+		//pop the latest position off the stack
+		t = c->items[mid].positions;
+		if (t == NULL) {
+			fprintf(stderr, "Sequence '%s' in collection has and empty psotion list\n", seq);
+			exit(EXIT_FAILURE);
+		}
+		c->items[mid].positions = c->items[mid].positions;
+		free(t);
+	} else {
+		fprintf(stderr, "Could not find sequence '%s' in collection\n", seq);
+		exit(EXIT_FAILURE);
+	}
+}
 
 //copy
 collection *copy(collection *c) {
@@ -249,9 +289,9 @@ void usage() {
 		"the sequence.\n"
 		"\n"
 		"The second section lists each fragment on a single line followed by a tab,\n"
-		"followed by a comma separated list of sequence index:position pairs. The number\n"
-		"before the colon indicates which sequence the fragment was found in, and the\n"
-		"number after the colon indicates where in the sequence the fragment can be\n"
+		"followed by a comma separated list of sequence index,position pairs. The number\n"
+		"before the comma indicates which sequence the fragment was found in, and the\n"
+		"number after the comma indicates where in the sequence the fragment can be\n"
 		"found (indexed from 0).\n"
 		"\n"
 		"As an example:\n"
@@ -274,7 +314,7 @@ void usage() {
 		"NOPQRSTUVWXYZ   1:39\n"
 		"--- End ---\n"
 	);
-	exit(1);
+	exit(EXIT_FAILURE);
 }
 
 //The brute force algortithm to analyse a single chunk. We test each set in the
@@ -326,6 +366,7 @@ stack *pop(stack *S, int *pos, int *i, int *j, int *realminoverlap, int *realmax
 //Setup up variables and default values
 collection *best = NULL;
 collection *current = NULL;
+collection *nbest = NULL;
 int minlen = 8;
 int maxlen = 30;
 int minoverlap = 2;
@@ -352,47 +393,44 @@ void bruteforce(int pos, const char *seq, const int basepos) {
 			}
 			if (pos-j+i >= seqlen) {
 				if (incollection(current, seq+pos-j)) {
-					pushidx(current, seq+pos-j, titleidx, basepos+pos-j);
+					pushspos(current, seq+pos-j, titleidx, basepos+pos-j);
 				} else {
 					if ((best != NULL)&&((current->length+1 > best->length)||(current->length+1 > nbestlen))) {
 						S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap);
 						if (S == NULL) return; else goto retpos;
 					} else {
-						col_insert(current, seq+pos-j, titleidx, basepos+pos-j);
+						pushspos(current, seq+pos-j, titleidx, basepos+pos-j);
 					}
 				}
 				if ((best == NULL)||(current->length < best->length)) {
 					destroy(best); best = NULL;
 					best = copy(current);
 				}
-				if (popidx(current, seq+pos-j) == 0) {
-					col_remove(current, seq+pos-j);
-				}
+				popspos(current, seq+pos-j);
 			} else {
 				tkey = strndup(seq+pos-j,i);
 				if (incollection(current, tkey)) {
-					pushidx(current, tkey, titleidx, basepos+pos-j);
+					pushspos(current, tkey, titleidx, basepos+pos-j);
 				} else {
 					if ((best != NULL)&&((current->length+1 > best->length)||(current->length+1 > nbestlen))) {
 						S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap);
 						if (S == NULL) return; else goto retpos;
 					} else {
-						col_insert(current, tkey, titleidx, basepos+pos-j);
+						pushspos(current, tkey, titleidx, basepos+pos-j);
 					}
 				}
 				S = push(S,pos,i,j,realminoverlap,realmaxoverlap);
 				pos = pos-j+i;
 				goto start;	
 				retpos:
-				if (popidx(current, tkey) == 0) {
-					col_remove(current, tkey);
-				}
+				popspos(current, tkey);
 				free(tkey);
 			}
 			j++;
 		}
 		i--;
 	}
+}
 
 //Counts the number of occurences of needle in haystack
 int find_all_count(const char *needle, const char *haystack) {
@@ -404,7 +442,7 @@ int find_all_count(const char *needle, const char *haystack) {
 }
 
 int main(int argc, char**argv) {
-	char **sequences = NULL;
+	sequence_rec *sequences = NULL;
 	int chunklength = 4*(maxlen-minoverlap)+minoverlap;
 	char *accept_prev = NULL;
 	int usenaive = 2;
@@ -413,15 +451,27 @@ int main(int argc, char**argv) {
 	FILE *f = NULL;
 	int i, j ,k;
 	char *line = NULL;
+	char *sline = NULL;
 	char *fragment = NULL;
 	char *poslist = NULL;
-	int linelen;
+	size_t linelen;
 	int rcount;
 	int seqidx;
-	int seqpos;
+	int seqloc;
 	int parse_error;
 	char *convstr = NULL;
 	int *penalties;
+	int numsequences = 0;
+	int ntitleidx;
+	char *tseq;
+	int numchunks;
+	int min_penalty;
+	int min_penalty_idx;
+	char **chunk;
+	int startidx;
+	int penalty;
+	int basepos;
+	seqpos *tmpspos;	
 
 	i = 1;
 	while (i < argc) {
@@ -456,12 +506,17 @@ int main(int argc, char**argv) {
 		i++;
 	}
 
-	if (chunklength < minlen) {fprintf(stderr, "Chunk length cannot be less the minimum fragment length\n"); exit(1);}
-	if (maxlen < minlen) {fprintf(stderr, "Maximum fragment length cannot be less than minimum fragment length\n"); exit(1);}
-	if (maxoverlap < minoverlap) {fprintf(stderr, "Maximum overlap length cannot be less than minimum overlap length\n"); exit(1);}
+	if (chunklength < minlen) {fprintf(stderr, "Chunk length cannot be less the minimum fragment length\n"); return EXIT_FAILURE;}
+	if (maxlen < minlen) {fprintf(stderr, "Maximum fragment length cannot be less than minimum fragment length\n"); return EXIT_FAILURE;}
+	if (maxoverlap < minoverlap) {fprintf(stderr, "Maximum overlap length cannot be less than minimum overlap length\n"); return EXIT_FAILURE;}
 
 	if (filename != NULL) {
 		f = fopen(filename, "r");
+		if (f == NULL) {
+			fprintf(stderr, "Error opening %s: %s\n", filename, strerror(errno));
+			return EXIT_FAILURE;
+		}
+
 	} else {
 		f = stdin;
 	}
@@ -478,13 +533,17 @@ int main(int argc, char**argv) {
 				apf = f;
 			} else {
 				apf = fopen(accept_prev, "r");
+				if (apf == NULL) {
+					fprintf(stderr, "Error opening %s: %s\n", filename, strerror(errno));
+					return EXIT_FAILURE;
+				}
 			}
 		}
 
 		rcount = getline(&line, &linelen, apf);
 		while ((rcount != 0)&&(line[0] != '>')) {
 			if (sscanf(line, "%*u:") != EOF) {
-				printf(line);
+				printf("%s", line);
 				titleidx++;
 			} else {
 				i = 0;
@@ -501,50 +560,53 @@ int main(int argc, char**argv) {
 						j = i;
 					} else {
 						fprintf(stderr, "Parse error reading previous results: %s\n", line);
-						exit(1);
+						return EXIT_FAILURE;
 					}
 					while ((i < strlen(poslist))&&(isdigit(poslist[i]))) i++; k = i;
 					while ((i < strlen(poslist))&&(isspace(poslist[i]))) i++;
 					if (poslist[i] == ',') {
-						convstr = malloc(k-j); strncpy(convstr, poslist+j, k-j-1); seqpos = atoi(convstr); free(convstr);
-						col_insert(current, fragment, seqidx, seqpos);
+						convstr = malloc(k-j); strncpy(convstr, poslist+j, k-j-1); seqloc = atoi(convstr); free(convstr);
+						pushspos(current, fragment, seqidx, seqloc);
 						free(fragment);
 						parse_error = 0;
 						i++;
 					} else {
 						fprintf(stderr, "Parse error reading previous results: %s\n", line);
-						exit(1);
+						return EXIT_FAILURE;
 					}
 				}
 				if (parse_error) {
 					fprintf(stderr, "Parse error reading previous results: %s\n", line);
-					exit(1);
+					return EXIT_FAILURE;
 				}
 			}
 			rcount = getline(&line, &linelen, apf);
 		}
 	}
 
-	if (apf != f) rcount = getline(&line, &linelen, f);
-	while (rcount != 0) {
+	if (apf != f) rcount = getline(&line, &linelen, f); else rcount = 0;
+	while (rcount != -1) {
 		while (empty(line)) rcount = getline(&line, &linelen, f);
 		if (line[0] != '>') {
 			fprintf(stderr,"Sequence input not in valid fasta format\n");
-			exit(1);
+			return EXIT_FAILURE;
 		}
 
-		realloc(sequences,sizeof(sequence_rec)*numsequences);
-		sequences[numsequences-1].title = malloc(strlen(line)); strncpy(title,line+1); strip(&title);
+		numsequences++;
+		sequences = realloc(sequences,sizeof(sequence_rec)*numsequences);
+		sequences[numsequences-1].title = strdup(line+1); strip(sequences[numsequences-1].title);
 		rcount = getline(&line, &linelen, f);
 		sequences[numsequences-1].sequence = malloc(1); sequences[numsequences-1].sequence[0] = 0;
-		while ((!empty(line))&&(line[0] != '>')) {
-			strip(&line);
-			realloc(sequences[numsequences-1].sequence, strlen(sequences[numsequences-1].sequence)+strlen(line)+1);
-			strcat(sequences[numsequences-1].sequence,line);
+		while ((!empty(line))&&(line[0] != '>')&&(rcount != -1)) {
+			sline = strip(line);
+			sequences[numsequences-1].sequence = realloc(sequences[numsequences-1].sequence, strlen(sequences[numsequences-1].sequence)+strlen(sline)+1);
+			strcat(sequences[numsequences-1].sequence,sline);
+			free(sline);
 			rcount = getline(&line, &linelen, f);
 		}
 	}
 
+	return 2;
 	//pre calculate baseline using naive filtered method
 	if (usenaive > 1) {
 		nbest = copy(current);
@@ -555,12 +617,12 @@ int main(int argc, char**argv) {
 			}
 			for (j = 0; j < strlen(sequences[i].sequence); j += maxlen-minoverlap) {
 				tseq = substr(sequences[i].sequence, i, i+maxlen);
-				col_insert(nbest, tseq, ntitleidx, j);
+				pushspos(nbest, tseq, ntitleidx, j);
 				free(tseq);
 			}
-			ntitleidx += 1
+			ntitleidx += 1;
 		}
-		nbestlen = nbest.length;
+		nbestlen = nbest->length;
 	} else {
 		nbestlen = (int)(pow(2,sizeof(int)*8)-1);
 	}
@@ -581,9 +643,9 @@ int main(int argc, char**argv) {
 					min_penalty = 0;
 					memset(penalties, 0, (4*minlen+1)*sizeof(int));
 					for (j = 0; j < 4*minlen+1; j++) {
-						tstr = substr(sequences[i].sequence, startidx+chunklength-(2*minlen)+j, startidx+chunklength-minlen+j);
-						penalty = find_all_count(tstr, seq);
-						free(tstr);
+						tseq = substr(sequences[i].sequence, startidx+chunklength-(2*minlen)+j, startidx+chunklength-minlen+j);
+						penalty = find_all_count(tseq, sequences[i].sequence);
+						free(tseq);
 						for (k = 0; k < min(minlen, (4*minlen+1)-j); k++) {
 							penalties[j+k] += penalty;
 							if (min_penalty < penalties[j+k]) {
@@ -600,30 +662,30 @@ int main(int argc, char**argv) {
 					}
 					min_penalty_idx = startidx+chunklength-(2*minlen)+min_penalty_idx;
 					numchunks++;
-					realloc(chunks, sizeof(char *)*numchunks);
+					chunk = realloc(chunk, sizeof(char *)*numchunks);
 					chunk[numchunks-1] = malloc(min_penalty_idx-startidx+1);
-					strncpy(chunk[numchunks-1], sequences[i]->sequence+startidx, min_penalty_idx-startidx);
+					strncpy(chunk[numchunks-1], sequences[i].sequence+startidx, min_penalty_idx-startidx);
 					startidx = min_penalty_idx-(minoverlap-1);
 				}
 				numchunks++;
-				realloc(chunks, sizeof(char *)*numchunks);
-				chunk[numchunks-1] = malloc(strlen(sequences[i]->sequence)-startidx+1);
+				chunk = realloc(chunk, sizeof(char *)*numchunks);
+				chunk[numchunks-1] = malloc(strlen(sequences[i].sequence)-startidx+1);
 				strcpy(chunk[numchunks-1], sequences[i].sequence+startidx);
 			}
 
-			if (strlen(chunks[numchunks-1]) < minlen) {
-				realloc(chunks[numchunks-2], strlen(chunks[numchunks-2])+strlen(chunks[numchunks-1])+1);
-				strcat(chunks[numchunks-2], chunks[numchunks-1]);
-				free(chunks[numchunks-1]);
+			if (strlen(chunk[numchunks-1]) < minlen) {
+				chunk = realloc(chunk[numchunks-2], strlen(chunk[numchunks-2])+strlen(chunk[numchunks-1])+1);
+				strcat(chunk[numchunks-2], chunk[numchunks-1]);
+				free(chunk[numchunks-1]);
 				numchunks--;
-				realloc(chunks, sizeof(char *)*numchunks);
+				chunk = realloc(chunk, sizeof(char *)*numchunks);
 			}
 
 			basepos = 0;
-			for (c = 0; c < numchunks; c++) {
-				seqlen = strlen(chunks[c]);
+			for (j = 0; j < numchunks; j++) {
+				seqlen = strlen(chunk[j]);
 				destroy(best); best = NULL;
-				bruteforce(0,chunks[c],basepos);
+				bruteforce(0,chunk[j],basepos);
 				current = copy(best);
 				basepos += seqlen-minoverlap+1;
 			}
@@ -631,9 +693,24 @@ int main(int argc, char**argv) {
 		}
 	}
 
-	if ((usenaive == 2)||((usenaive == 1)&&((best == NULL)||(best.length > nbest.length)))) {
-		best copy(nbest);
+	if ((usenaive == 2)||((usenaive == 1)&&((best == NULL)||(best->length > nbest->length)))) {
+		best = copy(nbest);
 	}
 
-	printout(best);
+	for (i = 0; i < numsequences; i++) {
+		printf("%i: %s\n", i, sequences[i].title);
+	}
+	for (i = 0; i < best->length; i++) {
+		printf("%s\t", best->items[i].seq);
+		tmpspos = best->items[i].positions;
+		while (tmpspos != NULL) {
+			printf("%i:%i", tmpspos->seqidx, tmpspos->pos);
+			if (tmpspos->next == NULL) {
+				printf("\n");
+			} else {
+				printf(", ");
+			}
+		}
+	}
+	return EXIT_SUCCESS;
 }

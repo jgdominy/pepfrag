@@ -1,5 +1,10 @@
 #!/usr/bin/python
 
+#This code is Copyright (c) the Centre for Proteomic and Genomic Research
+#(2011-2012) and is distributed under the terms of Gnu General Public License
+#version 3 or higher.  For the full terms and conditions please see the file
+#COPYING which should have been included in this distribution.
+
 import sys
 import re
 import copy
@@ -58,9 +63,9 @@ index number, followed by a colon and a space, followed by the fasta title of
 the sequence.
 
 The second section lists each fragment on a single line followed by a tab,
-followed by a comma separated list of sequence index:position pairs. The number
-before the colon indicates which sequence the fragment was found in, and the
-number after the colon indicates where in the sequence the fragment can be
+followed by a comma separated list of sequence index,position pairs. The number
+before the comma indicates which sequence the fragment was found in, and the
+number after the comma indicates where in the sequence the fragment can be
 found (indexed from 0).
 
 As an example:

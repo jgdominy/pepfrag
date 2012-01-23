@@ -1,5 +1,10 @@
 #!/usr/bin/python
 
+#This code is Copyright (c) the Centre for Proteomic and Genomic Research
+#(2011-2012) and is distributed under the terms of Gnu General Public License
+#version 3 or higher.  For the full terms and conditions please see the file
+#COPYING which should have been included in this distribution.
+
 import sys
 import re
 
