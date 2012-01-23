@@ -4,6 +4,7 @@ import sys
 import re
 import copy
 
+sys.setrecursionlimit(100000)
 #print a usage message and exit
 def usage():
 	print """Pepfrag produces a list of peptide fragments providing complete coverage of the
