@@ -62,13 +62,9 @@ int empty(const char *s) {
 //j exclusive, where i < j; If i or j are negative they refer to distance from
 //the end of the s
 char *substr(const char *s, int i, int j) {
-	char *ret;
 	if (i < 0) i = strlen(s)+i;
 	if (j < 0) j = strlen(s)+j;
-	ret = malloc(j-i+1);
-	strncpy(ret,s,j-i);
-	ret[j-i] = 0;
-	return ret;
+	return strndup(s+i,j-i);
 }
 
 //strips white space from either end of the string
@@ -117,7 +113,6 @@ void pushspos(collection *c, const char *seq, int sidx, int spos) {
 	int mid;
 	int d;
 	seqpos *newpos = NULL;
-	element *newelem = NULL;
 
 	newpos = malloc(sizeof(seqpos));
 	newpos->seqidx = sidx;
@@ -126,10 +121,8 @@ void pushspos(collection *c, const char *seq, int sidx, int spos) {
 		c->length = 1;
 		c->items = realloc(c->items, c->length*sizeof(element));
 		newpos->next = NULL;
-		newelem = malloc(sizeof(element));
-		newelem->seq = strdup(seq);
-		newelem->positions = newpos;
-		c->items = newelem;
+		c->items[0].seq = strdup(seq);
+		c->items[0].positions = newpos;
 	} else {
 		do {
 			mid = (min+max)/2;
@@ -147,13 +140,12 @@ void pushspos(collection *c, const char *seq, int sidx, int spos) {
 		} else {
 			//insert new sequence at correct position
 			newpos->next = NULL;
-			newelem = malloc(sizeof(element));
-			newelem->seq = strdup(seq);
-			newelem->positions = newpos;
 			c->length++;
 			c->items = realloc(c->items, c->length*sizeof(element));
-			if (d > 0) mid--;	
-			memmove(c->items+mid+2, c->items+mid+1, c->length-mid-2);
+			if (d > 0) mid--;
+			memmove(c->items+mid+1, c->items+mid, (c->length-mid)*sizeof(element));
+			c->items[mid].seq = strdup(seq);
+			c->items[mid].positions = newpos;
 		}
 	}
 }
@@ -198,8 +190,14 @@ collection *copy(collection *c) {
 	int i;
 
 	if (c == NULL) return c;
+		
 	newcol = malloc(sizeof(collection));
-	newcol->items = malloc(sizeof(element)*c->length);
+	if (c->length == 0) {
+		newcol->items = NULL;
+		newcol->length = 0;
+	} else {
+		newcol->items = malloc(sizeof(element)*c->length);
+	}
 	for (i = 0; i < c->length; i++) {
 		newcol->items[i].seq = strdup(c->items[i].seq);
 		newcol->items[i].positions = NULL;
@@ -521,6 +519,7 @@ int main(int argc, char**argv) {
 		f = stdin;
 	}
 
+	current = malloc(sizeof(collection)); current->length = 0; current->items = NULL;
 	if (accept_prev != NULL) {
 		if (strcmp(accept_prev, "-") == 0) {
 			if (f == stdin) {
@@ -606,7 +605,6 @@ int main(int argc, char**argv) {
 		}
 	}
 
-	return 2;
 	//pre calculate baseline using naive filtered method
 	if (usenaive > 1) {
 		nbest = copy(current);
@@ -616,7 +614,7 @@ int main(int argc, char**argv) {
 				printf("%i: %s", ntitleidx, sequences[i].title);
 			}
 			for (j = 0; j < strlen(sequences[i].sequence); j += maxlen-minoverlap) {
-				tseq = substr(sequences[i].sequence, i, i+maxlen);
+				tseq = substr(sequences[i].sequence, j, j+maxlen);
 				pushspos(nbest, tseq, ntitleidx, j);
 				free(tseq);
 			}
