@@ -100,9 +100,9 @@ NOPQRSTUVWXYZ   1:39
 
 def bruteforce(pos, seq, basepos):
 	global best, current, titleidx
+	realminoverlap = min(minoverlap,max(0,pos-minoverlap))
+	realmaxoverlap = min(maxoverlap,max(0,pos-maxoverlap))
 	for i in range(maxlen, minlen-1, -1): 
-		realminoverlap = min(minoverlap,max(0,pos-minoverlap))
-		realmaxoverlap = min(maxoverlap,max(0,pos-maxoverlap))
 		for j in range(realminoverlap,realmaxoverlap+1):
 			if seqlen - (pos-j+1) < minlen:
 				return
@@ -241,11 +241,19 @@ if usenaive is not False:
 	for seq, title in sequences:
 		if usenaive is True:
 			print "{0}: {1}".format(ntitleidx, title)
-		for i in range(0, len(seq), maxlen-minoverlap):
+		seqlen = len(seq)
+		ppush = None
+		i = 0
+		while i < seqlen and i+maxlen < seqlen:
 			if seq[i:i+maxlen] in nbest:
 				nbest[seq[i:i+maxlen]].append((ntitleidx,i))
 			else:
 				nbest[seq[i:i+maxlen]] = [(ntitleidx,i)]
+			i += maxlen-minoverlap
+		if seq[i:i+maxlen] in nbest:
+			nbest[seq[i:i+maxlen]].append((ntitleidx,i))
+		else:
+			nbest[seq[i:i+maxlen]] = [(ntitleidx,i)]
 		ntitleidx += 1
 	nbestlen = len(nbest)
 else:
@@ -261,17 +269,17 @@ if usenaive is not True:
 		else:
 			startidx = 0
 			while startidx+chunklength < seqlen:
-				min_penalty = 0
-				penalties = [0]*(4*minlen+1)
-				for i in range(4*minlen+1):
+				min_penalty = None
+				penalties = [0]*(4*minlen)
+				for i in range(3*minlen+1):
 					penalty = find_all_count(re.escape(seq[startidx+chunklength-(2*minlen)+i:startidx+chunklength-minlen+i]), seq)
 					for j in range(min(minlen, (4*minlen+1)-i)):
 						penalties[i+j] += penalty
-						if min_penalty < penalties[i+j]:
+						if min_penalty is None or penalties[i+j] < min_penalty:
 							min_penalty = penalties[i+j]
 				min_penalty_idx = minlen
 				for i in range(minlen, 3*minlen+1):
-					if penalties[i] < min_penalty:
+					if penalties[i] <= min_penalty:
 						min_penalty_idx = i
 						min_penalty = penalties[i]
 				min_penalty_idx = startidx+chunklength-(2*minlen)+min_penalty_idx

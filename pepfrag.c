@@ -26,9 +26,22 @@ typedef struct element {
 } element;
 
 typedef struct collection {
+	int capacity;
 	int length;
 	element *items;
 } collection;
+
+//Setup up variables and default values
+collection *best = NULL;
+collection *current = NULL;
+collection *nbest = NULL;
+int minlen = 8;
+int maxlen = 30;
+int minoverlap = 2;
+int maxoverlap = 4;
+int titleidx = 1;
+int nbestlen;
+int seqlen;
 
 //a struture to keep a record of sequences read in from file, and their titles
 typedef struct {
@@ -53,6 +66,16 @@ int empty(const char *s) {
 	i = 0;
 	while (s[i] != 0) {
 		if (!isspace(s[i])) return 0;
+		i++;
+	}
+	return 1;
+}
+
+int isnumeric(const char *s) {
+	int i;
+	i = 0;
+	while (s[i] != 0) {
+		if (!isdigit(s[i])) return 0;
 		i++;
 	}
 	return 1;
@@ -84,23 +107,9 @@ char *strip(const char *s) {
 	return strndup(s+i, j-i+1);
 }
 
-//incollection uses a binary search to locate a particular peptide fragment
-//within the given collection returning the items index plus 1 if found, otherwise 0
-int incollection(const collection *c, const char *s) {
-	int min = 0;
-	int max = c->length-1;
-	int mid, d;
-
-	do {
-		mid = (min+max)/2;
-		d = strcmp(s,c->items[mid].seq);
-		if (d < 0) {
-			max = mid-1;
-		} else {
-			min = mid+1;
-		}
-	} while ((d != 0)&&(min < max));
-	return (d == 0);
+//elemcmp is a callback function for bsearch
+int elemcmp(const void *n, const void *h) {
+	return strcmp((char *)n, ((element *)h)->seq);
 }
 
 //pushspos inserts a fragment into a collection. If the fragment exists, the
@@ -108,74 +117,70 @@ int incollection(const collection *c, const char *s) {
 //fragement is added and the position list is set to contain only the added
 //position.
 void pushspos(collection *c, const char *seq, int sidx, int spos) {
-	int min = 0;
-	int max = c->length-1;
-	int mid;
-	int d;
+	element *ipos;
 	seqpos *newpos = NULL;
+	int i;
 
+	if (strlen(seq) < minlen) {
+		fprintf(stderr, "Push attempt too short: %s @ %i\n", seq, spos);
+	}
 	newpos = malloc(sizeof(seqpos));
 	newpos->seqidx = sidx;
 	newpos->pos = spos;
 	if (c->length == 0) {
 		c->length = 1;
-		c->items = realloc(c->items, c->length*sizeof(element));
+		c->capacity = 64;
+		c->items = realloc(c->items, 64*sizeof(element));
 		newpos->next = NULL;
 		c->items[0].seq = strdup(seq);
 		c->items[0].positions = newpos;
 	} else {
-		do {
-			mid = (min+max)/2;
-			d = strcmp(seq,c->items[mid].seq);
-			if (d < 0) {
-				max = mid-1;
-			} else {
-				min = mid+1;
-			}
-		} while ((d != 0)&&(min < max));
-		if (d == 0) {
+		ipos = bsearch(seq,c->items,c->length,sizeof(element),elemcmp);
+		if (ipos != NULL) {
 			//append to sequence's position list
-			newpos->next = c->items[mid].positions;
-			c->items[mid].positions = newpos;
+			newpos->next = ipos->positions;
+			ipos->positions = newpos;
 		} else {
 			//insert new sequence at correct position
 			newpos->next = NULL;
+			if (c->length+1 > c->capacity) {
+				c->capacity = (c->capacity==0?64:c->capacity*2);
+				c->items = realloc(c->items, c->capacity*sizeof(element));
+			}
+			i = 0;
+			while ((i < c->length)&&(strcmp(seq,c->items[i].seq) == 1)) {
+				i++;
+			}
+			if (i < c->length) memmove(c->items+i+1, c->items+i, ((c->length-i)*sizeof(element)));
+			c->items[i].seq = strdup(seq);
+			c->items[i].positions = newpos;
 			c->length++;
-			c->items = realloc(c->items, c->length*sizeof(element));
-			if (d > 0) mid--;
-			memmove(c->items+mid+1, c->items+mid, (c->length-mid)*sizeof(element));
-			c->items[mid].seq = strdup(seq);
-			c->items[mid].positions = newpos;
 		}
 	}
+	//printf("DEBUG: push %s\n", seq);
 }
 
 //popspos pops the most recent position off a given sequences position stack, in a given collection.
 void popspos(collection *c, const char *seq) {
-	int min = 0;
-	int max = c->length-1;
-	int mid;
-	int d;
+	element *ipos;
 	seqpos *t;
 
-	do {
-		mid = (min+max)/2;
-		d = strcmp(seq,c->items[mid].seq);
-		if (d < 0) {
-			max = mid-1;
-		} else {
-			min = mid+1;
-		}
-	} while ((d != 0)&&(min < max));
-	if (d == 0) {
+	//printf("DEBUG: pop %s\n", seq);
+	ipos = bsearch(seq,c->items,c->length,sizeof(element),elemcmp);
+	if (ipos != NULL) {
 		//pop the latest position off the stack
-		t = c->items[mid].positions;
+		t = ipos->positions;
 		if (t == NULL) {
 			fprintf(stderr, "Sequence '%s' in collection has and empty psotion list\n", seq);
 			exit(EXIT_FAILURE);
 		}
-		c->items[mid].positions = c->items[mid].positions;
+		ipos->positions = ipos->positions->next;
 		free(t);
+		if (ipos->positions == NULL) {
+			free(ipos->seq);
+			memmove(ipos, ipos+1, (c->length-(ipos+1-c->items))*sizeof(element));
+			c->length--;
+		}
 	} else {
 		fprintf(stderr, "Could not find sequence '%s' in collection\n", seq);
 		exit(EXIT_FAILURE);
@@ -185,7 +190,7 @@ void popspos(collection *c, const char *seq) {
 //copy
 collection *copy(collection *c) {
 	collection *newcol = NULL;
-	seqpos *newpos = NULL, *posptr;
+	seqpos *newpos = NULL, *posptr, *trail = NULL;
 	//element *newelem = NULL;
 	int i;
 
@@ -195,8 +200,11 @@ collection *copy(collection *c) {
 	if (c->length == 0) {
 		newcol->items = NULL;
 		newcol->length = 0;
+		newcol->capacity = 0;
 	} else {
 		newcol->items = malloc(sizeof(element)*c->length);
+		newcol->length = c->length;
+		newcol->capacity = c->length;
 	}
 	for (i = 0; i < c->length; i++) {
 		newcol->items[i].seq = strdup(c->items[i].seq);
@@ -204,8 +212,13 @@ collection *copy(collection *c) {
 		posptr = c->items[i].positions;
 		while (posptr != NULL) {
 			newpos = malloc(sizeof(seqpos));
+			if (trail != NULL) {
+				trail->next = newpos;
+			}
 			newpos->seqidx = posptr->seqidx;
 			newpos->pos = posptr->pos;
+			newpos->next = NULL;
+			trail = newpos;
 			if (newcol->items[i].positions == NULL) {
 				newcol->items[i].positions = newpos;
 			}
@@ -220,6 +233,7 @@ void destroy(collection *c) {
 	int i;
 	seqpos *posptr = NULL, *next = NULL;
 
+	if (c == NULL) return;
 	for (i = 0; i < c->length; i++) {
 		free(c->items[i].seq);
 		posptr = c->items[i].positions;
@@ -329,11 +343,11 @@ typedef struct stack {
 	int j;
 	int realminoverlap;
 	int realmaxoverlap;
-	//char *seq;
+	char *tkey;
 	struct stack *prev;
 } stack;
 
-stack *push(stack *S, int pos, int i, int j, int realminoverlap, int realmaxoverlap) {
+stack *push(stack *S, int pos, int i, int j, int realminoverlap, int realmaxoverlap, char *tkey) {
 	stack *nS;
 	nS = malloc(sizeof(stack));
 	nS->pos = pos;
@@ -343,11 +357,12 @@ stack *push(stack *S, int pos, int i, int j, int realminoverlap, int realmaxover
 	nS->j = j;
 	nS->realminoverlap = realminoverlap;
 	nS->realmaxoverlap = realmaxoverlap;
+	nS->tkey = tkey;
 	nS->prev = S;
 	return nS;
 }
 
-stack *pop(stack *S, int *pos, int *i, int *j, int *realminoverlap, int *realmaxoverlap) {
+stack *pop(stack *S, int *pos, int *i, int *j, int *realminoverlap, int *realmaxoverlap, char **tkey) {
 	stack *prev = S->prev;
 	*pos = S->pos;
 	//free(*seq);
@@ -357,44 +372,34 @@ stack *pop(stack *S, int *pos, int *i, int *j, int *realminoverlap, int *realmax
 	*j = S->j;
 	*realminoverlap = S->realminoverlap;
 	*realmaxoverlap = S->realmaxoverlap;
+	*tkey = S->tkey;
 	free(S);
 	return prev;
 }
 
-//Setup up variables and default values
-collection *best = NULL;
-collection *current = NULL;
-collection *nbest = NULL;
-int minlen = 8;
-int maxlen = 30;
-int minoverlap = 2;
-int maxoverlap = 4;
-int titleidx = 1;
-int nbestlen;
-int seqlen;
-
 void bruteforce(int pos, const char *seq, const int basepos) {
 	stack *S = NULL;
 	int i, j, realminoverlap, realmaxoverlap;
-	char *tkey;
+	char *tkey = NULL;
 
+	S = push(S,pos,i,j,realminoverlap,realmaxoverlap,tkey);
 	start:
+	realminoverlap = min(minoverlap,max(0,pos-minoverlap));
+	realmaxoverlap = min(maxoverlap,max(0,pos-maxoverlap));
 	i = maxlen;
 	while (i >= minlen) {
-		realminoverlap = min(minoverlap,max(0,pos-minoverlap));
-		realmaxoverlap = min(maxoverlap,max(0,pos-maxoverlap));
 		j = realminoverlap;
-		while (j < realmaxoverlap) {
+		while (j <= realmaxoverlap) {
 			if (seqlen - (pos-j+1) < minlen) {
-				S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap);
+				S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap,&tkey);
 				if (S == NULL) return; else goto retpos;
 			}
 			if (pos-j+i >= seqlen) {
-				if (incollection(current, seq+pos-j)) {
+				if (bsearch(seq+pos-j, current->items, current->length, sizeof(element), elemcmp)) {
 					pushspos(current, seq+pos-j, titleidx, basepos+pos-j);
 				} else {
 					if ((best != NULL)&&((current->length+1 > best->length)||(current->length+1 > nbestlen))) {
-						S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap);
+						S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap,&tkey);
 						if (S == NULL) return; else goto retpos;
 					} else {
 						pushspos(current, seq+pos-j, titleidx, basepos+pos-j);
@@ -407,17 +412,17 @@ void bruteforce(int pos, const char *seq, const int basepos) {
 				popspos(current, seq+pos-j);
 			} else {
 				tkey = strndup(seq+pos-j,i);
-				if (incollection(current, tkey)) {
+				if (bsearch(tkey, current->items, current->length, sizeof(element), elemcmp)) {
 					pushspos(current, tkey, titleidx, basepos+pos-j);
 				} else {
 					if ((best != NULL)&&((current->length+1 > best->length)||(current->length+1 > nbestlen))) {
-						S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap);
+						S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap,&tkey);
 						if (S == NULL) return; else goto retpos;
 					} else {
 						pushspos(current, tkey, titleidx, basepos+pos-j);
 					}
 				}
-				S = push(S,pos,i,j,realminoverlap,realmaxoverlap);
+				S = push(S,pos,i,j,realminoverlap,realmaxoverlap,tkey);
 				pos = pos-j+i;
 				goto start;	
 				retpos:
@@ -427,6 +432,10 @@ void bruteforce(int pos, const char *seq, const int basepos) {
 			j++;
 		}
 		i--;
+	}
+	if (S != NULL) {
+		S = pop(S,&pos,&i,&j,&realminoverlap,&realmaxoverlap,&tkey);
+		if (S == NULL) return; else goto retpos;
 	}
 }
 
@@ -443,7 +452,7 @@ int main(int argc, char**argv) {
 	sequence_rec *sequences = NULL;
 	int chunklength = 4*(maxlen-minoverlap)+minoverlap;
 	char *accept_prev = NULL;
-	int usenaive = 2;
+	int usenaive = 2; //2 = default/unset i.e. use pepfrag but return naive if it is better, 1 = force naive only, 3 = force pepfrag only
 	char *filename = NULL;
 	FILE *apf = NULL;
 	FILE *f = NULL;
@@ -462,7 +471,7 @@ int main(int argc, char**argv) {
 	int numsequences = 0;
 	int ntitleidx;
 	char *tseq;
-	int numchunks;
+	int numchunks, maxchunks;
 	int min_penalty;
 	int min_penalty_idx;
 	char **chunk;
@@ -475,18 +484,23 @@ int main(int argc, char**argv) {
 	while (i < argc) {
 		if (strcmp(argv[i],"-l") == 0) {
 			i++;
+			if (!isnumeric(argv[i])) {usage();}
 			minlen = atoi(argv[i]);
 		} else if (strcmp(argv[i],"-L") == 0) {
 			i++;
+			if (!isnumeric(argv[i])) {usage();}
 			maxlen = atoi(argv[i]);
 		} else if (strcmp(argv[i],"-o") == 0) {
 			i++;
+			if (!isnumeric(argv[i])) {usage();}
 			minoverlap = atoi(argv[i]);
 		} else if (strcmp(argv[i],"-O") == 0) {
 			i++;
+			if (!isnumeric(argv[i])) {usage();}
 			maxoverlap = atoi(argv[i]);
 		} else if (strcmp(argv[i],"-C") == 0) {
 			i++;
+			if (!isnumeric(argv[i])) {usage();}
 			chunklength = atoi(argv[i]);
 		} else if (strcmp(argv[i],"-p") == 0) {
 			i++;
@@ -519,7 +533,7 @@ int main(int argc, char**argv) {
 		f = stdin;
 	}
 
-	current = malloc(sizeof(collection)); current->length = 0; current->items = NULL;
+	current = malloc(sizeof(collection)); current->length = 0; current->items = malloc(sizeof(element)*64); current->capacity = 64;
 	if (accept_prev != NULL) {
 		if (strcmp(accept_prev, "-") == 0) {
 			if (f == stdin) {
@@ -606,18 +620,21 @@ int main(int argc, char**argv) {
 	}
 
 	//pre calculate baseline using naive filtered method
-	if (usenaive > 1) {
+	if (usenaive < 3) {
 		nbest = copy(current);
 		ntitleidx = titleidx;
 		for (i = 0; i < numsequences; i++) {
-			if (usenaive == 3) {
+			if (usenaive == 1) {
 				printf("%i: %s", ntitleidx, sequences[i].title);
 			}
-			for (j = 0; j < strlen(sequences[i].sequence); j += maxlen-minoverlap) {
+			seqlen = strlen(sequences[i].sequence);
+			j = 0;
+			do {
 				tseq = substr(sequences[i].sequence, j, j+maxlen);
 				pushspos(nbest, tseq, ntitleidx, j);
 				free(tseq);
-			}
+				j += maxlen-minoverlap;
+			} while ((j < strlen(sequences[i].sequence))&&(j+maxlen < seqlen));
 			ntitleidx += 1;
 		}
 		nbestlen = nbest->length;
@@ -625,59 +642,69 @@ int main(int argc, char**argv) {
 		nbestlen = (int)(pow(2,sizeof(int)*8)-1);
 	}
 
-	if (usenaive < 2) {
-		penalties = malloc((4*minlen+1)*sizeof(int));
+	if (usenaive > 1) {
+		penalties = malloc((4*minlen)*sizeof(int));
 		for (i = 0; i < numsequences; i++) {
 			printf("%i: %s", titleidx, sequences[i].title);
-			numchunks = 1;
-			chunk = malloc(sizeof(char *));
+			numchunks = 0;
 			seqlen = strlen(sequences[i].sequence);
 			if (chunklength > seqlen) {
-				chunk[0] = malloc(seqlen+1);
-				strcpy(chunk[0],sequences[i].sequence);
+				numchunks = 1;
+				maxchunks = 1;
+				chunk = malloc(sizeof(char *)*maxchunks);
+				chunk[0] = strdup(sequences[i].sequence);
 			} else {
+				maxchunks = (seqlen/(chunklength-(2*minoverlap)))+2;
+				chunk = malloc(sizeof(char *)*maxchunks);
 				startidx = 0;
 				while (startidx+chunklength < seqlen) {
-					min_penalty = 0;
-					memset(penalties, 0, (4*minlen+1)*sizeof(int));
-					for (j = 0; j < 4*minlen+1; j++) {
+					numchunks++;
+					if (numchunks > maxchunks) {
+						maxchunks = maxchunks*3/2;
+						chunk = realloc(chunk, sizeof(char *)*maxchunks);
+					}
+					min_penalty = -1;
+					memset(penalties, 0, (4*minlen)*sizeof(int));
+					for (j = 0; j <= 3*minlen; j++) {
 						tseq = substr(sequences[i].sequence, startidx+chunklength-(2*minlen)+j, startidx+chunklength-minlen+j);
 						penalty = find_all_count(tseq, sequences[i].sequence);
 						free(tseq);
 						for (k = 0; k < min(minlen, (4*minlen+1)-j); k++) {
 							penalties[j+k] += penalty;
-							if (min_penalty < penalties[j+k]) {
+							if ((min_penalty == -1)||(penalties[j+k] < min_penalty)) {
 								min_penalty = penalties[j+k];
 							}
 						}
 					}
 					min_penalty_idx = minlen;
-					for (j = minlen; j < 3*minlen+1; j++) {
-						if (penalties[j] < min_penalty) {
+					for (j = minlen; j <= 3*minlen; j++) {
+						if (penalties[j] <= min_penalty) {
 							min_penalty_idx = j;
 							min_penalty = penalties[j];
 						}
 					}
 					min_penalty_idx = startidx+chunklength-(2*minlen)+min_penalty_idx;
-					numchunks++;
-					chunk = realloc(chunk, sizeof(char *)*numchunks);
-					chunk[numchunks-1] = malloc(min_penalty_idx-startidx+1);
-					strncpy(chunk[numchunks-1], sequences[i].sequence+startidx, min_penalty_idx-startidx);
+					chunk[numchunks-1] = strndup(sequences[i].sequence+startidx, min_penalty_idx-startidx);
 					startidx = min_penalty_idx-(minoverlap-1);
 				}
 				numchunks++;
-				chunk = realloc(chunk, sizeof(char *)*numchunks);
-				chunk[numchunks-1] = malloc(strlen(sequences[i].sequence)-startidx+1);
-				strcpy(chunk[numchunks-1], sequences[i].sequence+startidx);
+				if (numchunks > maxchunks) {
+					maxchunks = maxchunks*3/2;
+					chunk = realloc(chunk, sizeof(char *)*maxchunks);
+				}
+				chunk[numchunks-1] = strdup(sequences[i].sequence+startidx);
 			}
 
 			if (strlen(chunk[numchunks-1]) < minlen) {
-				chunk = realloc(chunk[numchunks-2], strlen(chunk[numchunks-2])+strlen(chunk[numchunks-1])+1);
+				chunk[numchunks-2] = realloc(chunk[numchunks-2], strlen(chunk[numchunks-2])+strlen(chunk[numchunks-1])+1);
 				strcat(chunk[numchunks-2], chunk[numchunks-1]);
 				free(chunk[numchunks-1]);
 				numchunks--;
-				chunk = realloc(chunk, sizeof(char *)*numchunks);
 			}
+
+			//for (j = 0; j < numchunks; j++) {
+			//	printf("%s\n", chunk[j]);
+			//}
 
 			basepos = 0;
 			for (j = 0; j < numchunks; j++) {
@@ -688,10 +715,12 @@ int main(int argc, char**argv) {
 				basepos += seqlen-minoverlap+1;
 			}
 			titleidx++;
+			while (numchunks > 0) {free(chunk[numchunks-1]); numchunks--;}
 		}
+		free(penalties);
 	}
 
-	if ((usenaive == 2)||((usenaive == 1)&&((best == NULL)||(best->length > nbest->length)))) {
+	if ((usenaive == 1)||((usenaive == 2)&&((best == NULL)||(best->length > nbest->length)))) {
 		best = copy(nbest);
 	}
 
@@ -708,6 +737,7 @@ int main(int argc, char**argv) {
 			} else {
 				printf(", ");
 			}
+			tmpspos = tmpspos->next;
 		}
 	}
 	return EXIT_SUCCESS;
