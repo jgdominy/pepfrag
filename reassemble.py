@@ -7,16 +7,23 @@
 
 import sys
 import re
+import textwrap
 
 titles = []
 sequences = []
 current = {}
+wrap = 70
 
-if len(sys.argv) == 1 or sys.argv[1] == "-":
-	apf = sys.stdin
-else:
-	apf = open(sys.argv[1], "r")
-
+apf = sys.stdin
+i = 1
+while i < len(sys.argv):
+	if sys.argv[i] == "-w":
+		i += 1
+		wrap = int(sys.argv[i])
+	else:
+		apf = open(sys.argv[i], "r")
+	i += 1
+	
 line = apf.readline()
 while line != "":
 	if re.match("^\d+:", line):
@@ -34,5 +41,6 @@ for f in current:
 		sequences[seq] = sequences[seq][0:pos]+f+sequences[seq][pos+len(f):]
 
 for i in range(len(titles)):
-	print ">"+titles[i].rstrip()
-	print sequences[i]
+	print ">"+titles[i].strip()
+	print textwrap.fill(sequences[i], wrap)
+	print
