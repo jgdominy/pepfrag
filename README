@@ -5,17 +5,17 @@ COPYING which should have been included in this distribution.
 
 This project contains three scripts:
 
-pepfrag.py	The main project code, run without arguments for instructions
+pepfrag		The main project code, run without arguments for instructions.
+		This file can be created by running 'make' in the main
+		directory.
 mutate.py	Used to generate mutated sequences for testing
 reassamble.py	Used for round trip testing; Piping the output of pepfrag 
 		into reassmble should output fasta files identical to those 
 		used as input to pepfrag, but for intra-sequence line breaks
 
-There is also a sequences subdirectory, in which there is a Makefile. Running
-make in this directory will run a series of tests which may take some time (2
-days on an 8 core 2.5Ghz machine using 'make -j 7'). These tests can and should
-be run in parallel using -j N, where N is the number of free cores you have.
+There is also a sequences subdirectory. Running 'make test' in the main
+directory will run a series of tests which may take some time (3 days on an 8
+core 2.5Ghz machine using 'make -j 3'). These tests can and should be run in
+parallel using -j N, where N is the number of free cores you have.
 
-The Makefile reproduces the results found in the published paper, as well as
-others.
-
+The Makefile reproduces the results found in the published paper.
