@@ -9,7 +9,6 @@ import sys
 import re
 import copy
 
-sys.setrecursionlimit(100000)
 #print a usage message and exit
 def usage():
 	print """Pepfrag produces a list of peptide fragments providing complete coverage of the
@@ -189,6 +188,10 @@ if maxlen < minlen:
 	
 if maxoverlap < minoverlap:
 	sys.stderr.write("Maximum overlap length cannot be less than minimum overlap length\n")
+	sys.exit(1)
+
+if minoverlap >= minlen:
+	sys.stderr.write("Minimum fragment length must be greater than minimum overlap length\n")
 	sys.exit(1)
 
 if filename is not None:
